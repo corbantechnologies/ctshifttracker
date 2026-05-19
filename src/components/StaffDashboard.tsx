@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, limit } from 'firebase/firestore';
 import { useAuth } from '../lib/AuthContext';
-import { Attendance, AttendanceStatus, Shift } from '../types';
+import { Attendance, AttendanceStatus, Shift, Employee } from '../types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,6 +45,7 @@ export function StaffDashboard() {
   const [currentAttendance, setCurrentAttendance] = useState<Attendance | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [attendancePolicy, setAttendancePolicy] = useState({ lateGraceMinutes: 15, earlyLimitMinutes: 120 });
+  const [employeeProfile, setEmployeeProfile] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
   const [taskInput, setTaskInput] = useState('');
 
@@ -82,10 +83,17 @@ export function StaffDashboard() {
       }
     });
 
+    const unsubEmployeeProfile = onSnapshot(doc(db, 'employees', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setEmployeeProfile(docSnap.data() as Employee);
+      }
+    });
+
     return () => {
       unsubscribe();
       unsubscribeShifts();
       unsubscribePolicy();
+      unsubEmployeeProfile();
     };
   }, [user]);
 
@@ -93,11 +101,30 @@ export function StaffDashboard() {
     if (!user) return;
     try {
       const now = new Date();
-      const matchedShift = getClosestShift(now, shifts);
+      const matchedShift = getMatchedShift();
       
       if (!matchedShift) {
         toast.error('No shift available to clock in.');
         return;
+      }
+
+      // Check double-shifting / cooldown rules
+      const todayStr = format(now, 'yyyy-MM-dd');
+      const completedToday = attendance.filter(a => a.date === todayStr && a.clockOut);
+      if (completedToday.length > 0) {
+        const lastRecord = completedToday[0];
+        if (lastRecord.clockOut) {
+          const lastClockOut = new Date(lastRecord.clockOut);
+          const diffFromLastClockOut = differenceInMinutes(now, lastClockOut);
+          
+          if (diffFromLastClockOut < 30) {
+            toast.error(`Clock-in blocked: Please wait ${30 - diffFromLastClockOut} more minutes before starting a new shift.`);
+            return;
+          }
+          
+          const confirmDoubleShift = window.confirm('You have already completed a shift today. Are you sure you want to clock in again for another shift?');
+          if (!confirmDoubleShift) return;
+        }
       }
       
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -252,7 +279,16 @@ export function StaffDashboard() {
     }
   };
 
-  const matchedShift = getClosestShift(new Date(), shifts);
+  const getMatchedShift = () => {
+    if (!employeeProfile || !shifts.length) return null;
+    if (employeeProfile.assignedShiftId) {
+      const assigned = shifts.find(s => s.id === employeeProfile.assignedShiftId);
+      return assigned || null;
+    }
+    return getClosestShift(new Date(), shifts);
+  };
+
+  const matchedShift = getMatchedShift();
 
   if (loading) return <div>Loading dashboard...</div>;
 

@@ -33,7 +33,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
   // Form states
   const [newShift, setNewShift] = useState<Omit<Shift, 'id'>>({ name: '', startTime: '09:00', endTime: '17:00', daysOfWeek: [1,2,3,4,5] });
   const [newDepartment, setNewDepartment] = useState({ name: '', description: '' });
-  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', role: UserRole.Employee, department: '' });
+  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', role: UserRole.Employee, department: '', assignedShiftId: '' });
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -161,7 +161,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
         createdAt: new Date().toISOString()
       });
       toast.success('Personnel record created');
-      setNewEmployee({ name: '', email: '', role: UserRole.Employee, department: '' });
+      setNewEmployee({ name: '', email: '', role: UserRole.Employee, department: '', assignedShiftId: '' });
       setIsAddEmployeeOpen(false);
     } catch (error) {
       toast.error('Failed to create record');
@@ -528,6 +528,23 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="shift">Assigned Shift (Optional)</Label>
+                          <Select 
+                            value={newEmployee.assignedShiftId || "flexible"}
+                            onValueChange={(val: string) => setNewEmployee({ ...newEmployee, assignedShiftId: val === "flexible" ? "" : val })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select shift assignment" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="flexible">Flexible / Any Shift</SelectItem>
+                              {shifts.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <DialogFooter>
                         <Button 
@@ -551,6 +568,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Email</TableHead>
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Role</TableHead>
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Department</TableHead>
+                    <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Assigned Shift</TableHead>
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -568,6 +586,15 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                       </Badge>
                       </TableCell>
                       <TableCell className="px-6 py-4 text-slate-600">{emp.department}</TableCell>
+                      <TableCell className="px-6 py-4 text-slate-600">
+                        {emp.assignedShiftId ? (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-semibold">
+                            {shifts.find(s => s.id === emp.assignedShiftId)?.name || 'Unknown'}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic font-medium">Flexible</span>
+                        )}
+                      </TableCell>
                       <TableCell className="px-6 py-4 text-slate-600">
                         {(profile?.role === UserRole.HRAdmin || (profile?.role as string) === 'HR') && (
                           <Dialog>
@@ -611,6 +638,26 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                                         <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
                                       ))}
                                       {departments.length === 0 && <SelectItem value="Unassigned" disabled>No departments configured</SelectItem>}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Shift Assignment</Label>
+                                  <Select 
+                                    defaultValue={emp.assignedShiftId || "flexible"}
+                                    onValueChange={async (val) => {
+                                      await updateDoc(doc(db, 'employees', emp.uid), { assignedShiftId: val === "flexible" ? "" : val });
+                                      toast.success('Shift assignment updated');
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select shift assignment" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="flexible">Flexible / Any Shift</SelectItem>
+                                      {shifts.map(s => (
+                                        <SelectItem key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</SelectItem>
+                                      ))}
                                     </SelectContent>
                                   </Select>
                                 </div>

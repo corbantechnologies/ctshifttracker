@@ -20,6 +20,7 @@ export interface Employee {
   department: string;
   isActive: boolean;
   otEnabled: boolean;
+  assignedShiftId?: string;
   createdAt: string;
 }
 
