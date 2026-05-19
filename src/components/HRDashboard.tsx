@@ -27,6 +27,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>([]);
   const [overtimePolicy, setOvertimePolicy] = useState<OvertimePolicy | null>(null);
+  const [attendancePolicy, setAttendancePolicy] = useState({ lateGraceMinutes: 15, earlyLimitMinutes: 120 });
   const [loading, setLoading] = useState(true);
 
   // Form states
@@ -75,6 +76,12 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
       setDepartments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department)));
     });
 
+    const unsubAttendancePolicy = onSnapshot(doc(db, 'settings', 'attendance'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAttendancePolicy(docSnap.data() as { lateGraceMinutes: number, earlyLimitMinutes: number });
+      }
+    });
+
     setLoading(false);
     return () => {
       unsubEmployees();
@@ -82,6 +89,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
       unsubAttendance();
       unsubPolicy();
       unsubDepartments();
+      unsubAttendancePolicy();
     };
   }, []);
 
@@ -199,6 +207,18 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
       } catch (e) {
         toast.error('Failed to update policy');
       }
+    }
+  };
+
+  const handleUpdateAttendancePolicy = async (updates: Partial<{ lateGraceMinutes: number, earlyLimitMinutes: number }>) => {
+    try {
+      await setDoc(doc(db, 'settings', 'attendance'), {
+        ...attendancePolicy,
+        ...updates
+      });
+      toast.success('Attendance rules updated');
+    } catch (error) {
+      toast.error('Failed to update rules');
     }
   };
 
@@ -1153,6 +1173,42 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                 <div className="bg-slate-50 p-4 border-t border-slate-100 text-center">
                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Policy Revision: {overtimePolicy?.updatedAt ? format(new Date(overtimePolicy.updatedAt), 'MMM dd, HH:mm') : 'N/A'}</p>
                 </div>
+              </Card>
+
+              <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden mt-6">
+                <CardHeader className="bg-slate-900 text-white p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-blue-500 p-2 rounded-lg">
+                      <Clock3 className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg font-bold">Shift & Attendance Rules</CardTitle>
+                      <CardDescription className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Lateness and Early Check-in Policies</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6 bg-white">
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Late Grace Period (Minutes)</Label>
+                    <Input 
+                      type="number" 
+                      className="bg-slate-50 border-slate-200"
+                      value={attendancePolicy.lateGraceMinutes}
+                      onChange={(e) => handleUpdateAttendancePolicy({ lateGraceMinutes: parseInt(e.target.value) || 0 })}
+                    />
+                    <p className="text-[9px] text-slate-400 italic">Minutes after shift start time before an employee is automatically marked as "Late".</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Early Clock-in Limit (Minutes)</Label>
+                    <Input 
+                      type="number" 
+                      className="bg-slate-50 border-slate-200"
+                      value={attendancePolicy.earlyLimitMinutes}
+                      onChange={(e) => handleUpdateAttendancePolicy({ earlyLimitMinutes: parseInt(e.target.value) || 0 })}
+                    />
+                    <p className="text-[9px] text-slate-400 italic">Max minutes before shift starts during which employees are allowed to clock in.</p>
+                  </div>
+                </CardContent>
               </Card>
             </div>
 

@@ -13,11 +13,37 @@ import { format, differenceInMinutes, startOfDay, endOfDay } from 'date-fns';
 import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
 import { cn } from '../lib/utils';
 
+const getClosestShift = (now: Date, shiftsList: Shift[]) => {
+  if (shiftsList.length === 0) return null;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  let closestShift: Shift | null = null;
+  let minDiff = Infinity;
+  
+  shiftsList.forEach(shift => {
+    const [sHours, sMinutes] = shift.startTime.split(':').map(Number);
+    const shiftStartMinutes = sHours * 60 + sMinutes;
+    
+    let diff = Math.abs(currentMinutes - shiftStartMinutes);
+    if (diff > 720) {
+      diff = 1440 - diff;
+    }
+    
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestShift = shift;
+    }
+  });
+  
+  return closestShift;
+};
+
 export function StaffDashboard() {
   const { user, profile } = useAuth();
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [currentAttendance, setCurrentAttendance] = useState<Attendance | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [attendancePolicy, setAttendancePolicy] = useState({ lateGraceMinutes: 15, earlyLimitMinutes: 120 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,29 +74,63 @@ export function StaffDashboard() {
       setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
     });
 
+    const unsubscribePolicy = onSnapshot(doc(db, 'settings', 'attendance'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAttendancePolicy(docSnap.data() as { lateGraceMinutes: number, earlyLimitMinutes: number });
+      }
+    });
+
     return () => {
       unsubscribe();
       unsubscribeShifts();
+      unsubscribePolicy();
     };
   }, [user]);
 
   const handleClockIn = async () => {
     if (!user) return;
     try {
-      // Find suitable shift (simplification: just find the first one or let user select)
       const now = new Date();
-      const today = format(now, 'yyyy-MM-dd');
+      const matchedShift = getClosestShift(now, shifts);
       
+      if (!matchedShift) {
+        toast.error('No shift available to clock in.');
+        return;
+      }
+      
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const [sHours, sMinutes] = matchedShift.startTime.split(':').map(Number);
+      const shiftStartMinutes = sHours * 60 + sMinutes;
+      
+      // Calculate diff (minutes difference relative to shift starting today)
+      // Positive = late, Negative = early
+      const diffMinutes = currentMinutes - shiftStartMinutes;
+      
+      // 1. Check if checking in too early
+      if (diffMinutes < 0 && Math.abs(diffMinutes) > attendancePolicy.earlyLimitMinutes) {
+        toast.error(`Clock-in blocked: Too early. Shift start is ${matchedShift.startTime}.`);
+        return;
+      }
+      
+      // 2. Determine lateness
+      let status = AttendanceStatus.Present;
+      if (diffMinutes > attendancePolicy.lateGraceMinutes) {
+        status = AttendanceStatus.Late;
+        toast.warning(`Late clock-in flagged (by ${diffMinutes} minutes).`);
+      } else {
+        toast.success('Clocked in successfully!');
+      }
+
+      const today = format(now, 'yyyy-MM-dd');
       const newAttendance: Omit<Attendance, 'id'> = {
         employeeUid: user.uid,
-        shiftId: shifts[0]?.id || 'unassigned',
+        shiftId: matchedShift.id,
         date: today,
         clockIn: now.toISOString(),
-        status: AttendanceStatus.Present,
+        status: status,
       };
 
       await addDoc(collection(db, 'attendance'), newAttendance);
-      toast.success('Clocked in successfully!');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'attendance');
     }
@@ -125,6 +185,8 @@ export function StaffDashboard() {
       handleFirestoreError(error, OperationType.WRITE, `attendance/${currentAttendance.id}`);
     }
   };
+
+  const matchedShift = getClosestShift(new Date(), shifts);
 
   if (loading) return <div>Loading dashboard...</div>;
 
@@ -214,12 +276,23 @@ export function StaffDashboard() {
                 </div>
               </div>
             ) : (
-              <Button 
-                onClick={handleClockIn} 
-                className="w-full py-6 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all border-none"
-              >
-                <Clock className="mr-2 h-5 w-5" /> CLOCK IN
-              </Button>
+              <div className="w-full space-y-4">
+                {matchedShift ? (
+                  <div className="text-center p-3 bg-slate-50 border border-slate-100 rounded-lg text-xs text-slate-500 font-medium">
+                    Assigned Shift: <span className="font-bold text-slate-700">{matchedShift.name}</span> ({matchedShift.startTime} - {matchedShift.endTime})
+                  </div>
+                ) : (
+                  <div className="text-center p-3 bg-slate-50 border border-slate-100 rounded-lg text-xs text-slate-500 font-medium italic">
+                    No active shifts configured.
+                  </div>
+                )}
+                <Button 
+                  onClick={handleClockIn} 
+                  className="w-full py-6 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all border-none"
+                >
+                  <Clock className="mr-2 h-5 w-5" /> CLOCK IN
+                </Button>
+              </div>
             )}
           </CardContent>
           <div className="p-4 bg-slate-50 text-center text-[10px] text-slate-400 border-t border-slate-100 italic uppercase font-medium tracking-wider">
