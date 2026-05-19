@@ -79,13 +79,22 @@ service cloud.firestore {
       // HR can read all, Staff can read all (to see colleagues)
       allow read: if isSignedIn();
       
-      // Create own profile
-      allow create: if isSignedIn() && isValidEmployee(incoming()) && uid == request.auth.uid;
+      // Create own profile OR created by HR Admin
+      allow create: if isSignedIn() && (
+        (isValidEmployee(incoming()) && uid == request.auth.uid) ||
+        isHRAdmin()
+      );
       
       // Update: HR can update any, Others can only update limited fields
       allow update: if isSignedIn() && (
         isHRAdmin() || 
         (isOwner(uid) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'department']))
+      );
+
+      // Delete: HR Admin can delete any, Owner (matching pre-registered email) can delete to link profile
+      allow delete: if isSignedIn() && (
+        isHRAdmin() || 
+        (resource.data.email == request.auth.token.email)
       );
     }
 
