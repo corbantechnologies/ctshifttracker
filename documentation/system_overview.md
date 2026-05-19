@@ -100,7 +100,27 @@ Global operational policies.
 
 ---
 
-## 4. Backend & Deployment Guide
+## 4. User Flow Guide (Roles & Steps)
+
+### A. HR Admin Flow
+1. **Configure Rules & Policies**: Access the *Settings / Overtime* tab. Set early clock-in limits (e.g., 60 minutes) and lateness grace periods (e.g., 15 minutes). Create/edit shift schedules (Morning, Afternoon, Night).
+2. **Onboard Staff**: Go to *Staff Management*, click **Add Employee**, fill in details, and assign a specific shift (or select *Flexible / Any Shift* for flexible roles like engineers).
+3. **Monitor Timesheets**: Expand attendance records using the chevron dropdowns under the *Timesheets* tab to inspect active task logs. Approve pending records and click **Export CSV** to download payroll logs.
+
+### B. Manager Flow
+1. **Monitor Operations**: View real-time active rosters (who is currently clocked in, on break, or off-duty).
+2. **Review Logs**: Review employee task completion records and approve/sign off on timesheets.
+
+### C. Employee Flow (Staff / Engineers)
+1. **First-time Onboarding**: Authenticate using Google login. The app automatically links the Google account to the HR-registered profile.
+2. **Clock In**: Tap **Clock In** on the dashboard. The system matches the employee to their assigned shift (or closest available shift if flexible).
+3. **Log Shift Activities**: Add work items to the *Current Shift Task Log* card and check them off as they are completed.
+4. **Manage Breaks**: Toggle **Start Break** / **End Break** to track breaks accurately.
+5. **Clock Out**: Finish tasks, verify the checklist, and tap **Clock Out**. If tasks are left in pending, confirm the validation prompt to submit.
+
+---
+
+## 5. Backend & Deployment Guide
 
 ### Do I need to run a backend?
 **No.** There is no dedicated backend application server to run. The business logic runs inside client-side components, secured by Firebase Security Rules.
