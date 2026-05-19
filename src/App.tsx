@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
-import { Login } from './components/Login';
+import { LandingPage } from './components/LandingPage';
 import { StaffDashboard } from './components/StaffDashboard';
 import { HRDashboard } from './components/HRDashboard';
 import { UserRole } from './types';
@@ -15,13 +15,13 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'directory' | 'scheduler' | 'reports' | 'overtime' | 'terminal' | 'departments' | 'timesheets'>('overview');
 
   if (!profile) return (
-    <div className="h-screen w-screen flex items-center justify-center p-8 text-center flex-col gap-4 bg-slate-50">
-      <h2 className="text-2xl font-bold text-slate-800">Profile not found</h2>
+    <div className="h-screen w-screen flex items-center justify-center p-8 text-center flex-col gap-4 bg-slate-950 text-slate-100">
+      <h2 className="text-2xl font-bold text-slate-200">Profile not found</h2>
       <p className="text-slate-500 max-w-sm">
         It seems your account is not fully set up in the attendance system. 
         Please contact your HR administrator.
       </p>
-      <Button onClick={() => auth.signOut()} variant="outline">Sign Out</Button>
+      <Button onClick={() => auth.signOut()} variant="outline" className="border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900">Sign Out</Button>
     </div>
   );
 
@@ -48,7 +48,10 @@ function Dashboard() {
           <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center text-white font-bold">
             <Clock className="h-5 w-5" />
           </div>
-          <span className="text-white font-semibold text-lg tracking-tight">ShiftFlow</span>
+          <div className="flex flex-col">
+            <span className="text-white font-bold text-sm tracking-tight leading-none">CT Shift Tracker</span>
+            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider mt-1">Corban Tech</span>
+          </div>
         </div>
         
         <div className="flex-1 py-4">
@@ -167,13 +170,13 @@ function MainContent() {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-zinc-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-zinc-900"></div>
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-950 text-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
-  return user ? <Dashboard /> : <Login />;
+  return user ? <Dashboard /> : <LandingPage />;
 }
 
 export default function App() {
@@ -184,3 +187,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+
