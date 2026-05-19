@@ -47,6 +47,13 @@ export interface Department {
   createdAt: string;
 }
 
+export interface TaskItem {
+  id: string;
+  description: string;
+  status: 'pending' | 'completed';
+  timestamp: string;
+}
+
 export interface Attendance {
   id: string;
   employeeUid: string;
@@ -60,5 +67,6 @@ export interface Attendance {
   approved?: boolean;
   breakStart?: string; // ISO String
   breakMinutes?: number; // accumulated break duration in minutes
+  tasks?: TaskItem[];
 }
 

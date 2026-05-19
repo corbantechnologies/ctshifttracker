@@ -4,10 +4,11 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, 
 import { useAuth } from '../lib/AuthContext';
 import { Attendance, AttendanceStatus, Shift } from '../types';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Clock, LogOut, Coffee, Timer } from 'lucide-react';
+import { Clock, LogOut, Coffee, Timer, ClipboardList, Check, Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, differenceInMinutes, startOfDay, endOfDay } from 'date-fns';
 import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
@@ -45,6 +46,7 @@ export function StaffDashboard() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [attendancePolicy, setAttendancePolicy] = useState({ lateGraceMinutes: 15, earlyLimitMinutes: 120 });
   const [loading, setLoading] = useState(true);
+  const [taskInput, setTaskInput] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -138,6 +140,14 @@ export function StaffDashboard() {
 
   const handleClockOut = async () => {
     if (!currentAttendance || !user) return;
+    
+    // Check if there are pending tasks
+    const pendingTasks = currentAttendance.tasks?.filter(t => t.status === 'pending') || [];
+    if (pendingTasks.length > 0) {
+      const confirmClockOut = window.confirm(`You still have ${pendingTasks.length} pending task(s) logged. Are you sure you want to clock out?`);
+      if (!confirmClockOut) return;
+    }
+
     try {
       const now = new Date();
       const clockInTime = new Date(currentAttendance.clockIn);
@@ -186,6 +196,62 @@ export function StaffDashboard() {
     }
   };
 
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskInput.trim() || !currentAttendance) return;
+    
+    const newTask = {
+      id: Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
+      description: taskInput.trim(),
+      status: 'pending' as const,
+      timestamp: new Date().toISOString()
+    };
+    
+    try {
+      const updatedTasks = [...(currentAttendance.tasks || []), newTask];
+      await updateDoc(doc(db, 'attendance', currentAttendance.id), {
+        tasks: updatedTasks
+      });
+      setTaskInput('');
+      toast.success('Task added to shift log');
+    } catch (error) {
+      toast.error('Failed to add task');
+    }
+  };
+
+  const handleToggleTask = async (taskId: string) => {
+    if (!currentAttendance) return;
+    
+    const updatedTasks = currentAttendance.tasks?.map(task => 
+      task.id === taskId 
+        ? { ...task, status: task.status === 'completed' ? 'pending' as const : 'completed' as const, timestamp: new Date().toISOString() } 
+        : task
+    ) || [];
+    
+    try {
+      await updateDoc(doc(db, 'attendance', currentAttendance.id), {
+        tasks: updatedTasks
+      });
+    } catch (error) {
+      toast.error('Failed to update task');
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!currentAttendance) return;
+    
+    const updatedTasks = currentAttendance.tasks?.filter(task => task.id !== taskId) || [];
+    
+    try {
+      await updateDoc(doc(db, 'attendance', currentAttendance.id), {
+        tasks: updatedTasks
+      });
+      toast.success('Task removed');
+    } catch (error) {
+      toast.error('Failed to delete task');
+    }
+  };
+
   const matchedShift = getClosestShift(new Date(), shifts);
 
   if (loading) return <div>Loading dashboard...</div>;
@@ -193,11 +259,12 @@ export function StaffDashboard() {
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <Card className="md:col-span-1 border-slate-200 shadow-sm rounded-xl overflow-hidden flex flex-col">
-          <div className="p-5 border-b border-slate-100 font-bold text-slate-800 flex items-center gap-2 bg-white">
-            <Timer className="h-4 w-4 text-blue-500" />
-            Quick Action: My Shift
-          </div>
+        <div className="md:col-span-1 space-y-6">
+          <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden flex flex-col w-full">
+            <div className="p-5 border-b border-slate-100 font-bold text-slate-800 flex items-center gap-2 bg-white">
+              <Timer className="h-4 w-4 text-blue-500" />
+              Quick Action: My Shift
+            </div>
           <CardContent className="flex-1 flex flex-col items-center justify-center p-8 bg-white">
             <div className="text-4xl font-mono font-bold text-slate-800 mb-2 tracking-tighter">
               {format(new Date(), 'HH:mm:ss')}
@@ -300,7 +367,73 @@ export function StaffDashboard() {
           </div>
         </Card>
 
-        <div className="md:col-span-2 space-y-6">
+        {currentAttendance && (
+          <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden bg-white">
+            <CardHeader className="bg-slate-50 border-b border-slate-100 p-5">
+              <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-blue-500" />
+                Current Shift Task Log
+              </CardTitle>
+              <CardDescription className="text-[10px] text-slate-400 font-semibold uppercase">Keep track of your tasks during this shift</CardDescription>
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              {/* Task input form */}
+              <form onSubmit={handleAddTask} className="flex gap-2">
+                <Input 
+                  placeholder="What are you working on?" 
+                  value={taskInput}
+                  onChange={(e) => setTaskInput(e.target.value)}
+                  className="bg-slate-50 border-slate-200 text-xs"
+                />
+                <Button type="submit" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase px-4 h-9">
+                  Add
+                </Button>
+              </form>
+              
+              {/* Task List */}
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                {currentAttendance.tasks && currentAttendance.tasks.length > 0 ? (
+                  currentAttendance.tasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-100 group">
+                      <div className="flex items-center gap-2.5">
+                        <button 
+                          onClick={() => handleToggleTask(task.id)}
+                          className={cn(
+                            "w-4 h-4 rounded border flex items-center justify-center transition-colors",
+                            task.status === 'completed' 
+                              ? "bg-emerald-500 border-emerald-500 text-white" 
+                              : "border-slate-300 hover:border-blue-500 bg-white"
+                          )}
+                        >
+                          {task.status === 'completed' && <Check className="h-3 w-3 stroke-[3]" />}
+                        </button>
+                        <span className={cn(
+                          "text-xs font-medium text-slate-700",
+                          task.status === 'completed' && "line-through text-slate-400"
+                        )}>
+                          {task.description}
+                        </span>
+                      </div>
+                      <Button 
+                        onClick={() => handleDeleteTask(task.id)} 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-6 w-6 p-0 text-slate-400 hover:text-rose-500 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-center text-xs text-slate-400 py-4 italic">No tasks logged for this shift yet.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      <div className="md:col-span-2 space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <Card className="border-slate-200 shadow-sm rounded-xl">
               <CardHeader className="p-5">

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Calendar, BarChart3, Plus, Search, UserPlus, Settings, ShieldAlert, Clock3, Building2, Trash2, Edit3 } from 'lucide-react';
+import { Users, Calendar, BarChart3, Plus, Search, UserPlus, Settings, ShieldAlert, Clock3, Building2, Trash2, Edit3, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -39,6 +39,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
 
   // Timesheet Detail State
   const [timesheetEmployeeUid, setTimesheetEmployeeUid] = useState<string>('');
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState({
     start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     end: format(endOfMonth(new Date()), 'yyyy-MM-dd')
@@ -932,42 +933,89 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                             </TableRow>
                           </TableHeader>
                           <TableBody className="divide-y divide-slate-100">
-                            {timesheetRecords.map((record) => (
-                              <TableRow key={record.id} className="hover:bg-slate-50 transition-colors">
-                                <TableCell className="px-6 py-4 font-medium text-slate-900">{format(new Date(record.date), 'EEE, MMM dd')}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{format(new Date(record.clockIn), 'HH:mm')}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : '--:--'}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-500 font-medium">{record.breakMinutes ? `${record.breakMinutes}m` : '-'}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-600 font-medium">{record.totalMinutes ? (record.totalMinutes / 60).toFixed(1) : '-'}h</TableCell>
-                                <TableCell className="px-6 py-4 text-amber-600 font-medium">{record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(1) : '-'}h</TableCell>
-                                <TableCell className="px-6 py-4">
-                                  <Badge className={cn(
-                                    "text-[9px] uppercase font-bold border-none",
-                                    record.status === AttendanceStatus.Present ? "bg-emerald-100 text-emerald-700" :
-                                    record.status === AttendanceStatus.Late ? "bg-amber-100 text-amber-700" :
-                                    "bg-slate-100 text-slate-500"
-                                  )}>
-                                    {record.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="px-6 py-4 text-right">
-                                  {record.approved ? (
-                                    <Badge className="bg-emerald-50 text-emerald-700 border-none">Approved</Badge>
-                                  ) : (
-                                    <Button 
-                                      size="sm" 
-                                      className="h-7 text-[10px] bg-amber-500 hover:bg-amber-600 text-white"
-                                      onClick={async () => {
-                                        await updateDoc(doc(db, 'attendance', record.id), { approved: true });
-                                        toast.success('Record approved');
-                                      }}
-                                    >
-                                      Approve
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                             {timesheetRecords.map((record) => {
+                               const isExpanded = expandedRowId === record.id;
+                               const hasTasks = record.tasks && record.tasks.length > 0;
+                               return (
+                                 <React.Fragment key={record.id}>
+                                   <TableRow 
+                                     className={cn(
+                                       "hover:bg-slate-50 transition-colors",
+                                       hasTasks && "cursor-pointer"
+                                     )}
+                                     onClick={() => hasTasks && setExpandedRowId(isExpanded ? null : record.id)}
+                                   >
+                                     <TableCell className="px-6 py-4 font-medium text-slate-900 flex items-center gap-2">
+                                       {hasTasks && (
+                                         <ChevronDown className={cn(
+                                           "h-4 w-4 text-slate-400 transition-transform",
+                                           isExpanded && "transform rotate-180"
+                                         )} />
+                                       )}
+                                       {format(new Date(record.date), 'EEE, MMM dd')}
+                                     </TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{format(new Date(record.clockIn), 'HH:mm')}</TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : '--:--'}</TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-500 font-medium">{record.breakMinutes ? `${record.breakMinutes}m` : '-'}</TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-600 font-medium">{record.totalMinutes ? (record.totalMinutes / 60).toFixed(1) : '-'}h</TableCell>
+                                     <TableCell className="px-6 py-4 text-amber-600 font-medium">{record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(1) : '-'}h</TableCell>
+                                     <TableCell className="px-6 py-4">
+                                       <Badge className={cn(
+                                         "text-[9px] uppercase font-bold border-none",
+                                         record.status === AttendanceStatus.Present ? "bg-emerald-100 text-emerald-700" :
+                                         record.status === AttendanceStatus.Late ? "bg-amber-100 text-amber-700" :
+                                         "bg-slate-100 text-slate-500"
+                                       )}>
+                                         {record.status}
+                                       </Badge>
+                                     </TableCell>
+                                     <TableCell className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                       {record.approved ? (
+                                         <Badge className="bg-emerald-50 text-emerald-700 border-none">Approved</Badge>
+                                       ) : (
+                                         <Button 
+                                           size="sm" 
+                                           className="h-7 text-[10px] bg-amber-500 hover:bg-amber-600 text-white"
+                                           onClick={async () => {
+                                             await updateDoc(doc(db, 'attendance', record.id), { approved: true });
+                                             toast.success('Record approved');
+                                           }}
+                                         >
+                                           Approve
+                                         </Button>
+                                       )}
+                                     </TableCell>
+                                   </TableRow>
+                                   {isExpanded && hasTasks && (
+                                     <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
+                                       <TableCell colSpan={8} className="px-6 py-4">
+                                         <div className="pl-6 border-l-2 border-blue-500 py-1 space-y-2">
+                                           <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Shift Task Log:</p>
+                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-3xl">
+                                             {record.tasks?.map((task) => (
+                                               <div key={task.id} className="flex items-center gap-2 text-xs bg-white p-2.5 rounded-lg border border-slate-100">
+                                                 <Badge className={cn(
+                                                   "text-[9px] font-bold px-1.5 py-0.5 border-none uppercase",
+                                                   task.status === 'completed' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                                                 )}>
+                                                   {task.status}
+                                                 </Badge>
+                                                 <span className={cn(
+                                                   "font-medium text-slate-700",
+                                                   task.status === 'completed' && "line-through text-slate-400"
+                                                 )}>
+                                                   {task.description}
+                                                 </span>
+                                               </div>
+                                             ))}
+                                           </div>
+                                         </div>
+                                       </TableCell>
+                                     </TableRow>
+                                   )}
+                                 </React.Fragment>
+                               );
+                             })}
                             {timesheetRecords.length === 0 && (
                               <TableRow>
                                 <TableCell colSpan={8} className="px-6 py-12 text-center">
