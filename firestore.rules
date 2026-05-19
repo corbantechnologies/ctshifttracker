@@ -101,7 +101,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && incoming().employeeUid == request.auth.uid;
       
       allow update: if isSignedIn() && (
-        (isOwner(resource.data.employeeUid) && incoming().diff(resource.data).affectedKeys().hasOnly(['clockOut', 'totalMinutes', 'overtimeMinutes', 'status'])) ||
+        (isOwner(resource.data.employeeUid) && incoming().diff(resource.data).affectedKeys().hasOnly(['clockOut', 'totalMinutes', 'overtimeMinutes', 'status', 'breakStart', 'breakMinutes', 'tasks'])) ||
         isHRAdmin() ||
         (isManager() && incoming().diff(resource.data).affectedKeys().hasOnly(['approved']))
       );

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Calendar, BarChart3, Plus, Search, UserPlus, Settings, ShieldAlert, Clock3, Building2, Trash2, Edit3 } from 'lucide-react';
+import { Users, Calendar, BarChart3, Plus, Search, UserPlus, Settings, ShieldAlert, Clock3, Building2, Trash2, Edit3, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -27,17 +27,19 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>([]);
   const [overtimePolicy, setOvertimePolicy] = useState<OvertimePolicy | null>(null);
+  const [attendancePolicy, setAttendancePolicy] = useState({ lateGraceMinutes: 15, earlyLimitMinutes: 120 });
   const [loading, setLoading] = useState(true);
 
   // Form states
   const [newShift, setNewShift] = useState<Omit<Shift, 'id'>>({ name: '', startTime: '09:00', endTime: '17:00', daysOfWeek: [1,2,3,4,5] });
   const [newDepartment, setNewDepartment] = useState({ name: '', description: '' });
-  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', role: UserRole.Employee, department: '' });
+  const [newEmployee, setNewEmployee] = useState({ name: '', email: '', role: UserRole.Employee, department: '', assignedShiftId: '' });
   const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Timesheet Detail State
   const [timesheetEmployeeUid, setTimesheetEmployeeUid] = useState<string>('');
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState({
     start: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     end: format(endOfMonth(new Date()), 'yyyy-MM-dd')
@@ -75,6 +77,12 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
       setDepartments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department)));
     });
 
+    const unsubAttendancePolicy = onSnapshot(doc(db, 'settings', 'attendance'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAttendancePolicy(docSnap.data() as { lateGraceMinutes: number, earlyLimitMinutes: number });
+      }
+    });
+
     setLoading(false);
     return () => {
       unsubEmployees();
@@ -82,6 +90,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
       unsubAttendance();
       unsubPolicy();
       unsubDepartments();
+      unsubAttendancePolicy();
     };
   }, []);
 
@@ -152,7 +161,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
         createdAt: new Date().toISOString()
       });
       toast.success('Personnel record created');
-      setNewEmployee({ name: '', email: '', role: UserRole.Employee, department: '' });
+      setNewEmployee({ name: '', email: '', role: UserRole.Employee, department: '', assignedShiftId: '' });
       setIsAddEmployeeOpen(false);
     } catch (error) {
       toast.error('Failed to create record');
@@ -202,6 +211,18 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
     }
   };
 
+  const handleUpdateAttendancePolicy = async (updates: Partial<{ lateGraceMinutes: number, earlyLimitMinutes: number }>) => {
+    try {
+      await setDoc(doc(db, 'settings', 'attendance'), {
+        ...attendancePolicy,
+        ...updates
+      });
+      toast.success('Attendance rules updated');
+    } catch (error) {
+      toast.error('Failed to update rules');
+    }
+  };
+
   const filteredEmployees = employees.filter(e => 
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     e.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -220,9 +241,65 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
   const timesheetSummary = timesheetRecords.reduce((acc, curr) => ({
     totalMinutes: acc.totalMinutes + (curr.totalMinutes || 0),
     overtimeMinutes: acc.overtimeMinutes + (curr.overtimeMinutes || 0),
+    breakMinutes: acc.breakMinutes + (curr.breakMinutes || 0),
     approvedCount: acc.approvedCount + (curr.approved ? 1 : 0),
     pendingCount: acc.pendingCount + (curr.approved ? 0 : 1),
-  }), { totalMinutes: 0, overtimeMinutes: 0, approvedCount: 0, pendingCount: 0 });
+  }), { totalMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, approvedCount: 0, pendingCount: 0 });
+
+  const exportTimesheetToCSV = () => {
+    const selectedEmployee = employees.find(e => e.uid === timesheetEmployeeUid);
+    if (!selectedEmployee) return;
+
+    // Headers
+    const headers = [
+      'Date',
+      'Name',
+      'Email',
+      'Department',
+      'Clock In',
+      'Clock Out',
+      'Break Minutes',
+      'Regular Worked Hours',
+      'Overtime Hours',
+      'Status',
+      'Approved Status'
+    ];
+
+    // Data rows
+    const rows = timesheetRecords.map(record => {
+      const regHours = record.totalMinutes ? (record.totalMinutes / 60).toFixed(2) : '0.00';
+      const otHours = record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(2) : '0.00';
+      const clockInTime = record.clockIn ? format(new Date(record.clockIn), 'yyyy-MM-dd HH:mm:ss') : '';
+      const clockOutTime = record.clockOut ? format(new Date(record.clockOut), 'yyyy-MM-dd HH:mm:ss') : '';
+      const isApproved = record.approved ? 'Approved' : 'Pending';
+
+      return [
+        record.date,
+        selectedEmployee.name,
+        selectedEmployee.email,
+        selectedEmployee.department,
+        `"${clockInTime}"`,
+        `"${clockOutTime}"`,
+        record.breakMinutes || 0,
+        regHours,
+        otHours,
+        record.status,
+        isApproved
+      ];
+    });
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `timesheet_${selectedEmployee.name.replace(/\s+/g, '_')}_${dateFilter.start}_to_${dateFilter.end}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Timesheet exported to CSV successfully!');
+  };
 
   const getLiveStatus = (empUid: string) => {
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -451,6 +528,23 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="shift">Assigned Shift (Optional)</Label>
+                          <Select 
+                            value={newEmployee.assignedShiftId || "flexible"}
+                            onValueChange={(val: string) => setNewEmployee({ ...newEmployee, assignedShiftId: val === "flexible" ? "" : val })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select shift assignment" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="flexible">Flexible / Any Shift</SelectItem>
+                              {shifts.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <DialogFooter>
                         <Button 
@@ -474,6 +568,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Email</TableHead>
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Role</TableHead>
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Department</TableHead>
+                    <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Assigned Shift</TableHead>
                     <TableHead className="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -491,6 +586,15 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                       </Badge>
                       </TableCell>
                       <TableCell className="px-6 py-4 text-slate-600">{emp.department}</TableCell>
+                      <TableCell className="px-6 py-4 text-slate-600">
+                        {emp.assignedShiftId ? (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-semibold">
+                            {shifts.find(s => s.id === emp.assignedShiftId)?.name || 'Unknown'}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic font-medium">Flexible</span>
+                        )}
+                      </TableCell>
                       <TableCell className="px-6 py-4 text-slate-600">
                         {(profile?.role === UserRole.HRAdmin || (profile?.role as string) === 'HR') && (
                           <Dialog>
@@ -534,6 +638,26 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                                         <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
                                       ))}
                                       {departments.length === 0 && <SelectItem value="Unassigned" disabled>No departments configured</SelectItem>}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Shift Assignment</Label>
+                                  <Select 
+                                    defaultValue={emp.assignedShiftId || "flexible"}
+                                    onValueChange={async (val) => {
+                                      await updateDoc(doc(db, 'employees', emp.uid), { assignedShiftId: val === "flexible" ? "" : val });
+                                      toast.success('Shift assignment updated');
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select shift assignment" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="flexible">Flexible / Any Shift</SelectItem>
+                                      {shifts.map(s => (
+                                        <SelectItem key={s.id} value={s.id}>{s.name} ({s.startTime} - {s.endTime})</SelectItem>
+                                      ))}
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -789,7 +913,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <Card className="border-slate-100 shadow-none bg-slate-50/50">
                         <CardHeader className="p-4">
                           <CardDescription className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Regular Hours</CardDescription>
@@ -804,11 +928,17 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                       </Card>
                       <Card className="border-slate-100 shadow-none bg-slate-50/50">
                         <CardHeader className="p-4">
+                          <CardDescription className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Break Time</CardDescription>
+                          <p className="text-xl font-bold text-slate-700">{timesheetSummary.breakMinutes}m</p>
+                        </CardHeader>
+                      </Card>
+                      <Card className="border-slate-100 shadow-none bg-slate-50/50">
+                        <CardHeader className="p-4">
                           <CardDescription className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Approved</CardDescription>
                           <p className="text-xl font-bold text-slate-900">{timesheetSummary.approvedCount}</p>
                         </CardHeader>
                       </Card>
-                      <Card className="border-slate-100 shadow-none bg-slate-50/50">
+                      <Card className="border-slate-100 shadow-none bg-slate-50/50 col-span-2 md:col-span-1">
                         <CardHeader className="p-4">
                           <CardDescription className="text-[9px] font-bold text-amber-600 uppercase tracking-widest">Pending</CardDescription>
                           <p className="text-xl font-bold text-slate-900">{timesheetSummary.pendingCount}</p>
@@ -826,9 +956,14 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                              Records from {format(new Date(dateFilter.start), 'MMM dd')} to {format(new Date(dateFilter.end), 'MMM dd, yyyy')}
                            </CardDescription>
                          </div>
-                         <Button variant="outline" size="sm" onClick={() => window.print()} className="h-8 text-[11px] uppercase font-bold">
-                           Export Report
-                         </Button>
+                         <div className="flex gap-2">
+                           <Button variant="outline" size="sm" onClick={() => window.print()} className="h-8 text-[11px] uppercase font-bold">
+                             Print
+                           </Button>
+                           <Button size="sm" onClick={exportTimesheetToCSV} className="h-8 text-[11px] bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase rounded-lg shadow-sm">
+                             Export CSV
+                           </Button>
+                         </div>
                       </CardHeader>
                       <CardContent className="p-0">
                         <Table>
@@ -837,6 +972,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Date</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Clock In</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Clock Out</TableHead>
+                              <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Break</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Total</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">OT</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Status</TableHead>
@@ -844,44 +980,92 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                             </TableRow>
                           </TableHeader>
                           <TableBody className="divide-y divide-slate-100">
-                            {timesheetRecords.map((record) => (
-                              <TableRow key={record.id} className="hover:bg-slate-50 transition-colors">
-                                <TableCell className="px-6 py-4 font-medium text-slate-900">{format(new Date(record.date), 'EEE, MMM dd')}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{format(new Date(record.clockIn), 'HH:mm')}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : '--:--'}</TableCell>
-                                <TableCell className="px-6 py-4 text-slate-600 font-medium">{record.totalMinutes ? (record.totalMinutes / 60).toFixed(1) : '-'}h</TableCell>
-                                <TableCell className="px-6 py-4 text-amber-600 font-medium">{record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(1) : '-'}h</TableCell>
-                                <TableCell className="px-6 py-4">
-                                  <Badge className={cn(
-                                    "text-[9px] uppercase font-bold border-none",
-                                    record.status === AttendanceStatus.Present ? "bg-emerald-100 text-emerald-700" :
-                                    record.status === AttendanceStatus.Late ? "bg-amber-100 text-amber-700" :
-                                    "bg-slate-100 text-slate-500"
-                                  )}>
-                                    {record.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="px-6 py-4 text-right">
-                                  {record.approved ? (
-                                    <Badge className="bg-emerald-50 text-emerald-700 border-none">Approved</Badge>
-                                  ) : (
-                                    <Button 
-                                      size="sm" 
-                                      className="h-7 text-[10px] bg-amber-500 hover:bg-amber-600 text-white"
-                                      onClick={async () => {
-                                        await updateDoc(doc(db, 'attendance', record.id), { approved: true });
-                                        toast.success('Record approved');
-                                      }}
-                                    >
-                                      Approve
-                                    </Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                             {timesheetRecords.map((record) => {
+                               const isExpanded = expandedRowId === record.id;
+                               const hasTasks = record.tasks && record.tasks.length > 0;
+                               return (
+                                 <React.Fragment key={record.id}>
+                                   <TableRow 
+                                     className={cn(
+                                       "hover:bg-slate-50 transition-colors",
+                                       hasTasks && "cursor-pointer"
+                                     )}
+                                     onClick={() => hasTasks && setExpandedRowId(isExpanded ? null : record.id)}
+                                   >
+                                     <TableCell className="px-6 py-4 font-medium text-slate-900 flex items-center gap-2">
+                                       {hasTasks && (
+                                         <ChevronDown className={cn(
+                                           "h-4 w-4 text-slate-400 transition-transform",
+                                           isExpanded && "transform rotate-180"
+                                         )} />
+                                       )}
+                                       {format(new Date(record.date), 'EEE, MMM dd')}
+                                     </TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{format(new Date(record.clockIn), 'HH:mm')}</TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : '--:--'}</TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-500 font-medium">{record.breakMinutes ? `${record.breakMinutes}m` : '-'}</TableCell>
+                                     <TableCell className="px-6 py-4 text-slate-600 font-medium">{record.totalMinutes ? (record.totalMinutes / 60).toFixed(1) : '-'}h</TableCell>
+                                     <TableCell className="px-6 py-4 text-amber-600 font-medium">{record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(1) : '-'}h</TableCell>
+                                     <TableCell className="px-6 py-4">
+                                       <Badge className={cn(
+                                         "text-[9px] uppercase font-bold border-none",
+                                         record.status === AttendanceStatus.Present ? "bg-emerald-100 text-emerald-700" :
+                                         record.status === AttendanceStatus.Late ? "bg-amber-100 text-amber-700" :
+                                         "bg-slate-100 text-slate-500"
+                                       )}>
+                                         {record.status}
+                                       </Badge>
+                                     </TableCell>
+                                     <TableCell className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                       {record.approved ? (
+                                         <Badge className="bg-emerald-50 text-emerald-700 border-none">Approved</Badge>
+                                       ) : (
+                                         <Button 
+                                           size="sm" 
+                                           className="h-7 text-[10px] bg-amber-500 hover:bg-amber-600 text-white"
+                                           onClick={async () => {
+                                             await updateDoc(doc(db, 'attendance', record.id), { approved: true });
+                                             toast.success('Record approved');
+                                           }}
+                                         >
+                                           Approve
+                                         </Button>
+                                       )}
+                                     </TableCell>
+                                   </TableRow>
+                                   {isExpanded && hasTasks && (
+                                     <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
+                                       <TableCell colSpan={8} className="px-6 py-4">
+                                         <div className="pl-6 border-l-2 border-blue-500 py-1 space-y-2">
+                                           <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Shift Task Log:</p>
+                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-3xl">
+                                             {record.tasks?.map((task) => (
+                                               <div key={task.id} className="flex items-center gap-2 text-xs bg-white p-2.5 rounded-lg border border-slate-100">
+                                                 <Badge className={cn(
+                                                   "text-[9px] font-bold px-1.5 py-0.5 border-none uppercase",
+                                                   task.status === 'completed' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                                                 )}>
+                                                   {task.status}
+                                                 </Badge>
+                                                 <span className={cn(
+                                                   "font-medium text-slate-700",
+                                                   task.status === 'completed' && "line-through text-slate-400"
+                                                 )}>
+                                                   {task.description}
+                                                 </span>
+                                               </div>
+                                             ))}
+                                           </div>
+                                         </div>
+                                       </TableCell>
+                                     </TableRow>
+                                   )}
+                                 </React.Fragment>
+                               );
+                             })}
                             {timesheetRecords.length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={7} className="px-6 py-12 text-center">
+                                <TableCell colSpan={8} className="px-6 py-12 text-center">
                                   <p className="text-slate-400 font-medium italic">No attendance records found for this period.</p>
                                 </TableCell>
                               </TableRow>
@@ -1084,6 +1268,42 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                 <div className="bg-slate-50 p-4 border-t border-slate-100 text-center">
                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Policy Revision: {overtimePolicy?.updatedAt ? format(new Date(overtimePolicy.updatedAt), 'MMM dd, HH:mm') : 'N/A'}</p>
                 </div>
+              </Card>
+
+              <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden mt-6">
+                <CardHeader className="bg-slate-900 text-white p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-blue-500 p-2 rounded-lg">
+                      <Clock3 className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg font-bold">Shift & Attendance Rules</CardTitle>
+                      <CardDescription className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Lateness and Early Check-in Policies</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6 bg-white">
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Late Grace Period (Minutes)</Label>
+                    <Input 
+                      type="number" 
+                      className="bg-slate-50 border-slate-200"
+                      value={attendancePolicy.lateGraceMinutes}
+                      onChange={(e) => handleUpdateAttendancePolicy({ lateGraceMinutes: parseInt(e.target.value) || 0 })}
+                    />
+                    <p className="text-[9px] text-slate-400 italic">Minutes after shift start time before an employee is automatically marked as "Late".</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Early Clock-in Limit (Minutes)</Label>
+                    <Input 
+                      type="number" 
+                      className="bg-slate-50 border-slate-200"
+                      value={attendancePolicy.earlyLimitMinutes}
+                      onChange={(e) => handleUpdateAttendancePolicy({ earlyLimitMinutes: parseInt(e.target.value) || 0 })}
+                    />
+                    <p className="text-[9px] text-slate-400 italic">Max minutes before shift starts during which employees are allowed to clock in.</p>
+                  </div>
+                </CardContent>
               </Card>
             </div>
 
