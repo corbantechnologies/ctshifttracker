@@ -1,10 +1,8 @@
 import React from 'react';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, getDocs, collection, query, where, deleteDoc } from 'firebase/firestore';
+import { signInWithRedirect, GoogleAuthProvider } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { UserRole } from '../types';
 import { LogIn, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,62 +10,13 @@ export function Login({ onCancel }: { onCancel?: () => void }) {
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      const userRef = doc(db, 'employees', user.uid);
-      const userSnap = await getDoc(userRef);
-      
-      if (!userSnap.exists()) {
-        // 1. Check for pre-registered email from HR
-        const q = query(collection(db, 'employees'), where('email', '==', user.email));
-        const preRegSnap = await getDocs(q);
-        
-        let newEmployee;
-        
-        if (!preRegSnap.empty) {
-          // Link existing record
-          const existingDoc = preRegSnap.docs[0];
-          const existingData = existingDoc.data();
-          
-          newEmployee = {
-            ...existingData,
-            uid: user.uid,
-            name: user.displayName || existingData.name, // prefer google name
-            isActive: true,
-            updatedAt: new Date().toISOString()
-          };
-          
-          if (existingDoc.id !== user.uid) {
-            await deleteDoc(doc(db, 'employees', existingDoc.id));
-          }
-        } else {
-          // 2. Fresh registration (first user is HR)
-          const employeesSnap = await getDocs(collection(db, 'employees'));
-          const isFirstUser = employeesSnap.empty;
-
-          newEmployee = {
-            uid: user.uid,
-            email: user.email,
-            name: user.displayName || 'Unknown',
-            role: isFirstUser ? UserRole.HRAdmin : UserRole.Employee,
-            department: isFirstUser ? 'Administration' : 'Unassigned',
-            isActive: true,
-            otEnabled: true,
-            createdAt: new Date().toISOString(),
-          };
-        }
-        
-        await setDoc(userRef, newEmployee);
-        toast.success(`Welcome to CT Shift Tracker, ${newEmployee.name}!`);
-      } else {
-        toast.success(`Welcome back, ${user.displayName}!`);
-      }
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       console.error(error);
       toast.error('Login failed. Please try again.');
     }
   };
+
 
   const cardContent = (
     <Card className="w-full border-slate-900 bg-slate-950 text-slate-100 shadow-none p-4 rounded-2xl">
