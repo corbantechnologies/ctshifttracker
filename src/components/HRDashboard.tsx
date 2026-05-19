@@ -220,9 +220,65 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
   const timesheetSummary = timesheetRecords.reduce((acc, curr) => ({
     totalMinutes: acc.totalMinutes + (curr.totalMinutes || 0),
     overtimeMinutes: acc.overtimeMinutes + (curr.overtimeMinutes || 0),
+    breakMinutes: acc.breakMinutes + (curr.breakMinutes || 0),
     approvedCount: acc.approvedCount + (curr.approved ? 1 : 0),
     pendingCount: acc.pendingCount + (curr.approved ? 0 : 1),
-  }), { totalMinutes: 0, overtimeMinutes: 0, approvedCount: 0, pendingCount: 0 });
+  }), { totalMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, approvedCount: 0, pendingCount: 0 });
+
+  const exportTimesheetToCSV = () => {
+    const selectedEmployee = employees.find(e => e.uid === timesheetEmployeeUid);
+    if (!selectedEmployee) return;
+
+    // Headers
+    const headers = [
+      'Date',
+      'Name',
+      'Email',
+      'Department',
+      'Clock In',
+      'Clock Out',
+      'Break Minutes',
+      'Regular Worked Hours',
+      'Overtime Hours',
+      'Status',
+      'Approved Status'
+    ];
+
+    // Data rows
+    const rows = timesheetRecords.map(record => {
+      const regHours = record.totalMinutes ? (record.totalMinutes / 60).toFixed(2) : '0.00';
+      const otHours = record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(2) : '0.00';
+      const clockInTime = record.clockIn ? format(new Date(record.clockIn), 'yyyy-MM-dd HH:mm:ss') : '';
+      const clockOutTime = record.clockOut ? format(new Date(record.clockOut), 'yyyy-MM-dd HH:mm:ss') : '';
+      const isApproved = record.approved ? 'Approved' : 'Pending';
+
+      return [
+        record.date,
+        selectedEmployee.name,
+        selectedEmployee.email,
+        selectedEmployee.department,
+        `"${clockInTime}"`,
+        `"${clockOutTime}"`,
+        record.breakMinutes || 0,
+        regHours,
+        otHours,
+        record.status,
+        isApproved
+      ];
+    });
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `timesheet_${selectedEmployee.name.replace(/\s+/g, '_')}_${dateFilter.start}_to_${dateFilter.end}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Timesheet exported to CSV successfully!');
+  };
 
   const getLiveStatus = (empUid: string) => {
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -789,7 +845,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <Card className="border-slate-100 shadow-none bg-slate-50/50">
                         <CardHeader className="p-4">
                           <CardDescription className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Regular Hours</CardDescription>
@@ -804,11 +860,17 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                       </Card>
                       <Card className="border-slate-100 shadow-none bg-slate-50/50">
                         <CardHeader className="p-4">
+                          <CardDescription className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Break Time</CardDescription>
+                          <p className="text-xl font-bold text-slate-700">{timesheetSummary.breakMinutes}m</p>
+                        </CardHeader>
+                      </Card>
+                      <Card className="border-slate-100 shadow-none bg-slate-50/50">
+                        <CardHeader className="p-4">
                           <CardDescription className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Approved</CardDescription>
                           <p className="text-xl font-bold text-slate-900">{timesheetSummary.approvedCount}</p>
                         </CardHeader>
                       </Card>
-                      <Card className="border-slate-100 shadow-none bg-slate-50/50">
+                      <Card className="border-slate-100 shadow-none bg-slate-50/50 col-span-2 md:col-span-1">
                         <CardHeader className="p-4">
                           <CardDescription className="text-[9px] font-bold text-amber-600 uppercase tracking-widest">Pending</CardDescription>
                           <p className="text-xl font-bold text-slate-900">{timesheetSummary.pendingCount}</p>
@@ -826,9 +888,14 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                              Records from {format(new Date(dateFilter.start), 'MMM dd')} to {format(new Date(dateFilter.end), 'MMM dd, yyyy')}
                            </CardDescription>
                          </div>
-                         <Button variant="outline" size="sm" onClick={() => window.print()} className="h-8 text-[11px] uppercase font-bold">
-                           Export Report
-                         </Button>
+                         <div className="flex gap-2">
+                           <Button variant="outline" size="sm" onClick={() => window.print()} className="h-8 text-[11px] uppercase font-bold">
+                             Print
+                           </Button>
+                           <Button size="sm" onClick={exportTimesheetToCSV} className="h-8 text-[11px] bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase rounded-lg shadow-sm">
+                             Export CSV
+                           </Button>
+                         </div>
                       </CardHeader>
                       <CardContent className="p-0">
                         <Table>
@@ -837,6 +904,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Date</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Clock In</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Clock Out</TableHead>
+                              <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Break</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Total</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">OT</TableHead>
                               <TableHead className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase">Status</TableHead>
@@ -849,6 +917,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                                 <TableCell className="px-6 py-4 font-medium text-slate-900">{format(new Date(record.date), 'EEE, MMM dd')}</TableCell>
                                 <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{format(new Date(record.clockIn), 'HH:mm')}</TableCell>
                                 <TableCell className="px-6 py-4 text-slate-600 font-mono text-xs">{record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : '--:--'}</TableCell>
+                                <TableCell className="px-6 py-4 text-slate-500 font-medium">{record.breakMinutes ? `${record.breakMinutes}m` : '-'}</TableCell>
                                 <TableCell className="px-6 py-4 text-slate-600 font-medium">{record.totalMinutes ? (record.totalMinutes / 60).toFixed(1) : '-'}h</TableCell>
                                 <TableCell className="px-6 py-4 text-amber-600 font-medium">{record.overtimeMinutes ? (record.overtimeMinutes / 60).toFixed(1) : '-'}h</TableCell>
                                 <TableCell className="px-6 py-4">
@@ -881,7 +950,7 @@ export function HRDashboard({ initialTab = 'live' }: { initialTab?: 'employees' 
                             ))}
                             {timesheetRecords.length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={7} className="px-6 py-12 text-center">
+                                <TableCell colSpan={8} className="px-6 py-12 text-center">
                                   <p className="text-slate-400 font-medium italic">No attendance records found for this period.</p>
                                 </TableCell>
                               </TableRow>

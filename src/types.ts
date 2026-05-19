@@ -58,4 +58,7 @@ export interface Attendance {
   overtimeMinutes?: number;
   status: AttendanceStatus;
   approved?: boolean;
+  breakStart?: string; // ISO String
+  breakMinutes?: number; // accumulated break duration in minutes
 }
+

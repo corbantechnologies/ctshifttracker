@@ -81,13 +81,23 @@ export function StaffDashboard() {
     try {
       const now = new Date();
       const clockInTime = new Date(currentAttendance.clockIn);
-      const totalMinutes = differenceInMinutes(now, clockInTime);
+      let accumulatedBreak = currentAttendance.breakMinutes || 0;
+      
+      // If currently on break, auto-end the break segment and add to accumulatedBreak
+      if (currentAttendance.status === AttendanceStatus.OnBreak && currentAttendance.breakStart) {
+        const breakStart = new Date(currentAttendance.breakStart);
+        const lastBreakDuration = differenceInMinutes(now, breakStart);
+        accumulatedBreak += lastBreakDuration;
+      }
+      
+      // Deduct break minutes from total elapsed minutes
+      const rawMinutes = differenceInMinutes(now, clockInTime);
+      const totalMinutes = Math.max(0, rawMinutes - accumulatedBreak);
       
       // Calculate overtime if shift is known
       const shift = shifts.find(s => s.id === currentAttendance.shiftId);
       let overtime = 0;
       if (shift) {
-        // Simple overtime: anything above 8 hours or shift duration
         const [h1, m1] = shift.startTime.split(':').map(Number);
         const [h2, m2] = shift.endTime.split(':').map(Number);
         const shiftDuration = (h2 * 60 + m2) - (h1 * 60 + m1);
@@ -96,11 +106,20 @@ export function StaffDashboard() {
         }
       }
 
-      await updateDoc(doc(db, 'attendance', currentAttendance.id), {
+      const updateData: any = {
         clockOut: now.toISOString(),
         totalMinutes,
         overtimeMinutes: overtime,
-      });
+        status: AttendanceStatus.Present, // reset status back to Present on clock out
+        breakMinutes: accumulatedBreak,
+      };
+      
+      // If we auto-ended a break, clear breakStart
+      if (currentAttendance.status === AttendanceStatus.OnBreak) {
+        updateData.breakStart = null;
+      }
+
+      await updateDoc(doc(db, 'attendance', currentAttendance.id), updateData);
       toast.success('Clocked out successfully!');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `attendance/${currentAttendance.id}`);
@@ -139,12 +158,47 @@ export function StaffDashboard() {
                   </div>
                   <span>{format(new Date(currentAttendance.clockIn), 'HH:mm')}</span>
                 </div>
+                
+                {currentAttendance.breakMinutes || currentAttendance.status === AttendanceStatus.OnBreak ? (
+                  <div className="text-center text-xs text-slate-500 font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                    Break Duration:{' '}
+                    <span className="font-bold text-slate-700">
+                      {currentAttendance.breakMinutes || 0}m
+                      {currentAttendance.status === AttendanceStatus.OnBreak && ' (Active)'}
+                    </span>
+                  </div>
+                ) : null}
+
                 <div className="grid grid-cols-2 gap-3">
                    <Button 
                     onClick={async () => {
-                      const newStatus = currentAttendance.status === AttendanceStatus.OnBreak ? AttendanceStatus.Present : AttendanceStatus.OnBreak;
-                      await updateDoc(doc(db, 'attendance', currentAttendance.id), { status: newStatus });
-                      toast.success(newStatus === AttendanceStatus.OnBreak ? 'Break started' : 'Break ended');
+                      const now = new Date().toISOString();
+                      const isStartingBreak = currentAttendance.status !== AttendanceStatus.OnBreak;
+                      
+                      const updateData: any = {};
+                      if (isStartingBreak) {
+                        updateData.status = AttendanceStatus.OnBreak;
+                        updateData.breakStart = now;
+                      } else {
+                        // Ending break
+                        const breakStartStr = currentAttendance.breakStart;
+                        let additionalMinutes = 0;
+                        if (breakStartStr) {
+                          additionalMinutes = differenceInMinutes(new Date(), new Date(breakStartStr));
+                        }
+                        const currentAccumulated = currentAttendance.breakMinutes || 0;
+                        
+                        updateData.status = AttendanceStatus.Present;
+                        updateData.breakStart = null;
+                        updateData.breakMinutes = currentAccumulated + additionalMinutes;
+                      }
+                      
+                      try {
+                        await updateDoc(doc(db, 'attendance', currentAttendance.id), updateData);
+                        toast.success(isStartingBreak ? 'Break started' : 'Break ended');
+                      } catch (error) {
+                        handleFirestoreError(error, OperationType.WRITE, `attendance/${currentAttendance.id}`);
+                      }
                     }}
                     variant="outline" 
                     className="h-12 border-slate-200 text-xs font-bold uppercase"
@@ -218,7 +272,16 @@ export function StaffDashboard() {
                       <TableCell className="px-5 py-3 text-slate-600 text-xs font-mono">{format(new Date(record.clockIn), 'HH:mm')}</TableCell>
                       <TableCell className="px-5 py-3 text-slate-600 text-xs font-mono">{record.clockOut ? format(new Date(record.clockOut), 'HH:mm') : '--:--'}</TableCell>
                       <TableCell className="px-5 py-3 text-slate-600 text-xs">
-                        {record.totalMinutes ? `${Math.floor(record.totalMinutes / 60)}h ${record.totalMinutes % 60}m` : <span className="text-emerald-500 font-bold italic animate-pulse">Tracking...</span>}
+                        {record.totalMinutes ? (
+                          <div>
+                            <div>{Math.floor(record.totalMinutes / 60)}h {record.totalMinutes % 60}m</div>
+                            {record.breakMinutes ? (
+                              <div className="text-[10px] text-slate-400 font-semibold tracking-tight">Deducted Break: {record.breakMinutes}m</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-emerald-500 font-bold italic animate-pulse">Tracking...</span>
+                        )}
                       </TableCell>
                       <TableCell className="px-5 py-3">
                         <Badge className={cn(
