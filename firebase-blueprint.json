@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "User profile and role information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["HR", "Staff"] },
+        "department": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "name", "role", "isActive"]
+    },
+    "Shift": {
+      "title": "Shift",
+      "description": "Configured work shifts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "startTime": { "type": "string", "description": "HH:mm" },
+        "endTime": { "type": "string", "description": "HH:mm" },
+        "daysOfWeek": { "type": "array", "items": { "type": "integer" } }
+      },
+      "required": ["id", "name", "startTime", "endTime"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Record of clock in/out for an employee",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeUid": { "type": "string" },
+        "shiftId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "clockIn": { "type": "string", "format": "date-time" },
+        "clockOut": { "type": "string", "format": "date-time" },
+        "totalMinutes": { "type": "number" },
+        "overtimeMinutes": { "type": "number" },
+        "status": { "type": "string", "enum": ["Present", "Late", "Absent", "Early Leave"] }
+      },
+      "required": ["id", "employeeUid", "date", "clockIn"]
+    }
+  },
+  "firestore": {
+    "/employees/{uid}": {
+      "schema": "Employee",
+      "description": "Employee user records"
+    },
+    "/shifts/{shiftId}": {
+      "schema": "Shift",
+      "description": "Global shift configurations"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Clock-in/out records"
+    }
+  }
+}
