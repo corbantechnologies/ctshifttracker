@@ -69,6 +69,7 @@ export function StaffDashboard() {
       setLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'attendance');
+      setLoading(false);
     });
 
     // Fetch shifts
