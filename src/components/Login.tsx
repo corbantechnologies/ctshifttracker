@@ -1,5 +1,5 @@
 import React from 'react';
-import { signInWithRedirect, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,12 +10,13 @@ export function Login({ onCancel }: { onCancel?: () => void }) {
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithRedirect(auth, provider);
+      await signInWithPopup(auth, provider);
     } catch (error) {
       console.error(error);
       toast.error('Login failed. Please try again.');
     }
   };
+
 
 
   const cardContent = (
